@@ -1,8 +1,11 @@
-import express from "express";
-import cors from "cors";
-import crypto from "crypto";
-import { createProducer } from "../../../libs/kafka/src/kafka";
-import { ensureTopic, TOPICS } from "../../../libs/kafka/src/topics";
+const express = require("express");
+const cors = require("cors");
+const crypto = require("crypto");
+const {
+  createProducer,
+  createConsumer,
+} = require("../../../libs/kafka/src/kafka");
+const { ensureTopic, TOPICS } = require("../../../libs/kafka/src/topics");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -23,11 +26,41 @@ app.get("/api/v1/create-order", async (req, res) => {
       },
     ],
   };
-  await producer.send({
-    topic: TOPICS.ORDER_CREATED,
-    messages: [{ key: order.orderId, value: JSON.stringify(order) }],
+  await producer
+    .send({
+      topic: TOPICS.ORDER_CREATED,
+      messages: [{ key: order.orderId, value: JSON.stringify(order) }],
+    })
+    .then((result) => {
+      console.log("Message Produced");
+    })
+    .catch((err) => {
+      console.log("Producer error", err);
+    });
+  return res.status(200).json({
+    message: "Order created successfully",
   });
 });
+
+const run = async () => {
+  const consumer = await createConsumer("test-group");
+  await consumer.connect();
+  await consumer.subscribe({
+    topic: TOPICS.ORDER_CREATED,
+    fromBeginning: true,
+  });
+  await consumer.run({
+    // eachBatch: async ({ batch }) => {
+    //   console.log(batch)
+    // },
+    eachMessage: async ({ topic, partition, message }) => {
+      const prefix = `${topic}[${partition} | ${message.offset}] / ${message.timestamp}`;
+      console.log(`- ${prefix} ${message.key}#${message.value}`);
+    },
+  });
+};
+
+run().catch((e) => console.error(`[example/consumer] ${e.message}`, e));
 
 // Global error handler
 app.use("/", (err, req, res, next) => {
